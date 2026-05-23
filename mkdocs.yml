@@ -1,0 +1,107 @@
+site_name: Waddle View Docs
+site_url: https://docs.waddleview.com
+site_description: Documentation for Waddle View — a local-first TV dashboard for Raspberry Pi and desktop.
+copyright: Copyright &copy; Waddle View contributors
+
+repo_url: https://github.com/dukk/docs.waddleview.com
+repo_name: dukk/docs.waddleview.com
+edit_uri: edit/main/docs/
+
+extra:
+  homepage: https://waddleview.com
+  product_repo: https://github.com/dukk/waddle-view
+  releases: https://github.com/dukk/waddle-view/releases
+
+theme:
+  name: material
+  logo: assets/brand/headshot.svg
+  favicon: assets/brand/headshot.svg
+  icon:
+    repo: fontawesome/brands/github
+  font:
+    text: DM Sans
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-4
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-7
+        name: Switch to light mode
+  custom:
+    primary: "#0d1b2a"
+    accent: "#e05c6c"
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.path
+    - navigation.top
+    - navigation.footer
+    - navigation.indexes
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+    - toc.follow
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+
+extra_css:
+  - stylesheets/extra.css
+
+nav:
+  - Home: index.md
+  - Getting started:
+    - getting-started/overview.md
+    - getting-started/dev-setup.md
+    - getting-started/architecture.md
+  - Using Waddle View:
+    - using/display.md
+    - using/controller.md
+    - using/security.md
+  - Raspberry Pi:
+    - raspberry-pi/install.md
+    - raspberry-pi/upgrade.md
+    - raspberry-pi/development.md
+  - API:
+    - api/overview.md
+    - api/reference.md
+  - Reference:
+    - reference/screens.md
+    - reference/overlays.md
+    - reference/integrations.md
+    - reference/ticker.md
+    - reference/plugins.md
+    - reference/configuration.md
+    - reference/waddlectl.md
+  - Help:
+    - help/troubleshooting.md
+    - help/contributing.md

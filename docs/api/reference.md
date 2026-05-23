@@ -1,0 +1,301 @@
+# REST API reference
+
+## Binding
+
+- Default: listen on **`0.0.0.0:8787`** (all interfaces, **TLS on** with a self-signed cert under app-support `tls/`). Adoption/QR URLs use the first non-loopback IPv4 on the host.
+- Optional bind override: set **`WADDLE_DISPLAY_HTTP_BIND_IP`** (for example `127.0.0.1` for loopback-only) and optional **`WADDLE_DISPLAY_HTTP_PORT`**.
+- **`WADDLE_DISPLAY_HTTP_TLS`**: `1` by default; set `0` for plain HTTP. Override cert paths with **`WADDLE_DISPLAY_HTTP_TLS_DIR`**, **`WADDLE_DISPLAY_HTTP_TLS_CERT`**, **`WADDLE_DISPLAY_HTTP_TLS_KEY`**.
+- For LAN access, bind an explicit address and **firewall** the port. The embedded server can serve HTTPS directly; for untrusted networks you may still prefer a reverse proxy with a publicly trusted certificate.
+
+## Authentication
+
+**Public routes:** `GET /v1/health`, `POST /v1/adoption/request`, `POST /v1/adoption/confirm`.
+
+All other `/v1/*` routes require an **adopted API key**:
+
+- `Authorization: Bearer <api_key>`
+
+### Adoption (device-style pairing)
+
+1. **`POST /v1/adoption/request`** (public) — body: `identifier` (required string, caller label), optional `role` (`admin`, `operator`, `power_viewer`, `viewer`; default **`operator`**). Creates a display **security** alert (shield icon) naming the requested role and an **8-character challenge** formatted **`XXXX-XXXX`** (valid **5 minutes**). The challenge is **shown only on the display** — the HTTP response is `{ "expires_at_ms", "identifier", "role" }` (no `challenge_code`). With **`Authorization: Bearer <admin api_key>`** and the same body, an **admin** client is granted instantly (no challenge): response is `{ "api_key", "identifier", "role", "permissions" }`. Non-admin keys → **403**. **403** `adoption_role_not_allowed` when the requested role is not in `adoption_allowed_roles` (see **`GET /v1/display/settings`**).
+2. Operator reads the challenge on the display (alert overlay) and enters it on the controller in the same **`XXXX-XXXX`** form (hyphens optional on confirm).
+3. **`POST /v1/adoption/confirm`** (public) — body: `identifier`, `challenge_code` (8 Crockford characters; hyphens stripped). On success returns `{ "api_key", "identifier", "role", "permissions" }`. The API key is derived from the display **instance id**, challenge, and identifier, prefixed with **`wd_`**; only a **SHA-256 hash** of the full key (including the prefix) is stored in SQLite (`api_clients`).
+4. Use the API key on protected routes. Re-adopting the same **identifier** **rotates** the key.
+
+**503** `adoption_unavailable` when `waddle_instance.id` is missing. **401** `invalid_challenge` on bad/expired confirm.
+
+**Roles:** same four roles as before; each maps to a fixed permission set on protected routes. **`viewer`** has **`telemetry.read`** only. **`power_viewer`** adds **`navigation.control`** and **`content.catalog_read`**. **`content.moderate`** is required for **`PATCH /v1/content/*`**, suppression filters, and **`suppressed`** in catalog JSON.
+
+**Instance id file** (HMAC secret for adoption; not sent as the API key):
+
+- local/dev: app support `waddle_instance.id` (created on first launch; legacy `waddle_api.key` is renamed on upgrade)
+- packaged install reference: `/etc/waddle-view/instance.id`
+
+Invalid or missing API key → **401** `unauthorized`. Authenticated but lacking permission → **403** `forbidden`.
+
+### Adoption endpoints
+
+| Method | Path | Auth | Notes |
+|--------|------|------|-------|
+| POST | `/v1/adoption/request` | public (or admin bearer) | Start challenge, or instant grant when admin key present |
+| POST | `/v1/adoption/confirm` | public | Exchange code for `api_key` |
+| GET | `/v1/adoption/session` | bearer | Current client `{ identifier, role, permissions }` (any adopted role) |
+| GET | `/v1/adoption/clients` | admin bearer | List adopted clients with `masked_api_key`, role, identifier, `created_at_ms` |
+| POST | `/v1/adoption/clients` | admin bearer | Issue a new key: body `identifier`, optional `role`; returns plaintext `api_key` once |
+| DELETE | `/v1/adoption/clients/<id>` | admin bearer | Revoke a client row by id |
+
+Send the controller’s browser origin on adoption calls so the display can allow later API traffic: standard **`Origin`**, or **`Referer`** when the browser omits `Origin`. On successful **confirm** (or admin instant **request**), the normalized origin is stored in SQLite **`cors_allowed_origins`** (`source: adoption`).
+
+## Cross-origin browser access (CORS)
+
+Browser clients (for example **`waddle_controller`**) send an **`Origin`** header (or parsed **`Referer`** as fallback). CORS is **always** evaluated (not gated on env configuration).
+
+**Public adoption routes** (`POST /v1/adoption/request`, `POST /v1/adoption/confirm`): permissive LAN policy — allow origins whose host is loopback, RFC1918/link-local, ends with **`.local`**, or whose DNS lookup (cached ~5 minutes) resolves **only** to private addresses. Public IPs and lookup failures are denied. Other `/v1/adoption/*` paths use the protected CORS policy below.
+
+**All other `/v1/*` routes**: allow origins in **`cors_allowed_origins`** (adoption + env seed) **or** the static env list below.
+
+Optional env seed (comma-separated **exact** origins, no wildcards):
+
+- **`WADDLE_DISPLAY_HTTP_CORS_ORIGINS`** (for example `http://127.0.0.1:5173,http://localhost:5173`) — inserted at startup with `source: env` (idempotent).
+
+Allowed responses include **`Access-Control-Allow-Origin`** (mirrored origin), **`Access-Control-Allow-Methods`** (`GET,POST,PATCH,PUT,DELETE,OPTIONS`), and **`Access-Control-Allow-Headers`** (`Content-Type`, `Authorization`). **`OPTIONS`** preflight returns **204** when allowed.
+
+## Endpoints (MVP)
+
+| Method | Path | Notes |
+|--------|------|--------|
+| GET | `/v1/health` | No auth required. See **Health** below. |
+| GET | `/v1/integrations` | Lists non-secret integration settings. Without query parameters returns `{"items":[...]}` (full catalog). With `enabled` and/or `limit`, returns paginated `{"items":[...], "total", "limit", "offset"}` — see **Integrations list** below. |
+| GET | `/v1/screens` | Display screen definitions from SQLite table **`screens`** (`screen_type`, `config_json`, dwell/scheduling fields). Add `?include_config_schema=true` to include `config_json_schema` from SQLite **`screen_types`** (keyed by `screen_type`). Prefer `GET /v1/meta/config-schemas` for type-level docs and examples. |
+| GET | `/v1/ticker/items` | Current bottom-marquee items (`ordinal`, `kind`, `body`) — in-process snapshot; read-only. |
+| GET | `/v1/alerts` | All operator alerts from SQLite **`alerts`** (no redaction of bodies in MVP; do not store secrets in alerts). |
+| POST | `/v1/alerts` | JSON body: `title`, `body`, optional `qr_payload`, `severity`, `priority`, `expires_at` (epoch ms). |
+| DELETE | `/v1/alerts/{id}` | Dismisses alert (`dismissed_at` set). |
+| GET | `/v1/display/overlays` | Overlay schedules (`overlay_type`, `config_json`). Optional `?include_config_schema=true` adds `config_json_schema` from SQLite **`overlay_types`**. Built-in renderers include `shape_rain`, `birthday_confetti`, `bouncing_message`. |
+| POST | `/v1/display/overlays` | Upsert a row: `id`, `overlay_type`, `label`, `config_json` (object; phrases live under `messages`), `repeat_annually`, optional `year_exact`, `start_month`/`start_day`, optional `end_month`/`end_day`, optional `nth_week_of_month`/`nth_weekday` (both required together). Legacy clients may still send `overlay_kind` and `messages_json`; the server maps them into `overlay_type` / merges `messages_json` into `config_json.messages`. |
+| PATCH | `/v1/display/overlays/{id}` | Partial update; merges with the existing row. **404** if missing. |
+| DELETE | `/v1/display/overlays/{id}` | Deletes the schedule. **404** if missing. |
+| PATCH | `/v1/content/jokes/{id}` | JSON body: `{"suppressed": true}` or `false`. Row kept; hidden from slides/ticker. Returns **404** if id missing. |
+| PATCH | `/v1/content/rss-articles/{id}` | Same as jokes. |
+| PATCH | `/v1/content/photos/{id}` | Same as jokes. |
+| PATCH | `/v1/content/videos/{id}` | Same as jokes. |
+| PATCH | `/v1/content/trivia/{id}` | Same as jokes. |
+| DELETE | `/v1/content/jokes/{id}` | Permanently deletes the row. Requires **`content.moderate`**. Removes linked blob when present. **404** if missing. |
+| DELETE | `/v1/content/rss-articles/{id}` | Same as jokes delete. |
+| DELETE | `/v1/content/photos/{id}` | Same as jokes delete. |
+| DELETE | `/v1/content/videos/{id}` | Same as jokes delete. |
+| DELETE | `/v1/content/trivia/{id}` | Same as jokes delete. |
+| DELETE | `/v1/content/calendar-events/{id}` | Deletes calendar event (junction categories cascade). |
+| DELETE | `/v1/content/stock-quotes/{symbolId}` | Deletes latest quote for symbol id; does not remove **Interests** symbol. |
+| DELETE | `/v1/content/weather-current/{locationId}` | Deletes cached weather snapshot; does not remove location. |
+| DELETE | `/v1/content/weather-alerts/{locationId}/{nwsAlertId}` | Deletes one NWS alert row. |
+| POST | `/v1/curator/manual/photos` | Operator manual photo upload. JSON: `category` (content category id), `bytes_base64`, `content_type` (`image/jpeg`, `image/png`, `image/webp`), optional `alt_text`, `photographer_name`. **201** `{"id","blob_key"}`. |
+| POST | `/v1/curator/manual/videos` | Manual video upload. Same as photos plus required `duration_seconds`. |
+| POST | `/v1/curator/manual/jokes` | Manual joke. JSON: `category_id` (interests joke category), `setup`, `punchline`. **201** `{"id"}`. |
+| POST | `/v1/curator/manual/trivia` | Manual trivia. JSON: `category_id`, `question`, `option_a`–`option_d`, `correct_option` (`A`–`D`). **201** `{"id"}`. |
+| POST | `/v1/curator/manual/calendar-events` | Manual calendar event. JSON: `title`, `start_ms`, `end_ms` (epoch ms or ISO-8601), `all_day`, `category_id` or `category_ids`, optional `location`, `description`. **201** `{"id"}`. |
+
+**Manual entry access:** requires **`curator.write`**. Rows are stored with provenance **`manual_entry`** (controller **Data** page **Add** dialog, or these POST routes). Photo/video uploads are capped at **8 MiB** / **50 MiB** respectively.
+
+## Ingested content catalog (paginated browse)
+
+**Access:** `GET /v1/catalog/*` requires **`content.catalog_read`** or **`content.moderate`**. **`content.moderate`** alone unlocks optional **`suppressed`** filters, the **`suppressed`** field in JSON, **`PATCH /v1/content/*`**, and **`DELETE /v1/content/*`**. Callers with only **`content.catalog_read`** (for example **`power_viewer`**) always receive active (non-suppressed) rows only, omit **`suppressed`** from item objects, and get **403** if they pass **`suppressed=true`**. Query parameters are shared where applicable: `limit` (default **25**, max **100**), `offset` (default **0**), optional **`suppressed`** (`true` / `false`) on jokes, trivia, RSS articles, photos, and videos when permitted.
+
+**Text filters:** each list supports optional substring query parameters on its text columns (`%` / `_` wildcards are stripped from the needle). Multiple parameters **AND** together. Every catalog item includes **`integration_type`**: the collector id / provider string (for example `joke_openai`, `news_rss`, `manual_entry`, `stock_finnhub`, `weather_openweathermap`, `weather_nws_alerts`). Manual operator uploads use **`manual_entry`**. Trivia collector rows use the stored `integration_id` when present (`trivia_openai`, `trivia_opentdb`). Operator **`alerts`** use `integration_type` equal to the row `source` string.
+
+| Method | Path | Optional text filters (substring) |
+|--------|------|-----------------------------------|
+| GET | `/v1/catalog/jokes` | `setup`, `punchline`. Also optional `category` = `category_id`. |
+| GET | `/v1/catalog/trivia` | `question`, `option_a`, `option_b`, `option_c`, `option_d`, `integration_type`. Also optional `category`. |
+| GET | `/v1/catalog/rss-articles` | `title`, `summary`, `link`, `guid`. Optional `feed_id`. |
+| GET | `/v1/catalog/photos` | `alt_text`, `photographer_name`, `data_provider`. Optional `category`. |
+| GET | `/v1/catalog/videos` | `alt_text`, `photographer_name`, `data_provider`. Optional `category`. |
+| GET | `/v1/catalog/stock-quotes` | `symbol`, `display_name` (ticker symbol row; both AND when both set). |
+| GET | `/v1/catalog/weather-current` | `description` (current conditions text), `location_name` (matches configured location names). Optional `location_id`. |
+| GET | `/v1/catalog/weather-alerts` | `event`, `headline`, `severity`, `excerpt` (description excerpt), `location_name`. Optional `location_id`. |
+| GET | `/v1/catalog/alerts` | `title`, `body`, `source`, `severity`. |
+| GET | `/v1/catalog/calendar-events` | `title`, `location`, `description`, `source`. Optional `category` (matches primary `category_id` or any junction assignment). No `suppressed` support. Items include `start_ms`, `end_ms`, `all_day`, `category_ids`, and `integration_type` derived from `source` (`calendar_google`, `calendar_outlook`, `calendar_ical`, or passthrough). |
+
+Response shape: `{"items":[...], "total": <int>, "limit": <int>, "offset": <int>}`.
+
+## Interests catalog (operator configuration)
+
+**Access:** `GET /v1/interests/*` requires **`interests.read`** (admin, operator, power_viewer). `POST` / `PATCH` / `DELETE` require **`interests.write`** (admin, operator). SQLite tables: `interests_locations`, `interests_rss_feeds`, `interests_stock_symbols`, `interests_jokes`, `interests_trivia`.
+
+| Method | Path | Notes |
+|--------|------|--------|
+| GET/POST | `/v1/interests/weather-locations` | Location rows: `id`, `name`, `latitude`, `longitude`, `enabled`, `include_active_weather_alerts`. |
+| PATCH/DELETE | `/v1/interests/weather-locations/{id}` | **409** if `weather_current` or `weather_alerts` rows reference the id. |
+| GET/POST | `/v1/interests/rss-feeds` | Feed sources: `id`, `url`, `category`, `poll_seconds`, `max_articles`, `enabled`, optional `title`; list also returns provider fields (`last_fetched_at`, `consecutive_failures`, `next_retry_at`). |
+| PATCH/DELETE | `/v1/interests/rss-feeds/{id}` | **409** if `rss_articles` exist for the feed. |
+| GET/POST | `/v1/interests/stock-symbols` | `id`, `symbol`, `display_name`, `enabled`. |
+| PATCH/DELETE | `/v1/interests/stock-symbols/{id}` | **409** if `stock_quotes` exist for the symbol id. |
+| GET/POST | `/v1/interests/joke-categories` | Category pool config; `id` must match a `curator_categories` row. |
+| PATCH/DELETE | `/v1/interests/joke-categories/{id}` | **409** if `jokes` reference the category. |
+| GET/POST | `/v1/interests/trivia-categories` | Same pattern as joke categories (`min_questions` / `max_questions`). |
+| PATCH/DELETE | `/v1/interests/trivia-categories/{id}` | **409** if `trivia_questions` reference the category. |
+
+List responses: `{"items":[...]}`. Mutators return `{}` on success.
+
+## Operator JSON API (machine clients / `waddle_controller`)
+
+These routes use the same **Bearer session** auth as other protected `/v1/*` paths. Prefer JSON **`Content-Type: application/json`** on mutators.
+
+| Method | Path | Notes |
+|--------|------|--------|
+| GET | `/v1/telemetry/integrations` | Query: optional `limit` (default 200, max 2000), `since_ms`. Returns `{"items":[{at_ms, channel, message, integration_type?}, ...]}` — in-process ring buffer (`integration` + `engine` lines). `integration_type` is set on collector-scoped lines (matches `IDataProvider.id` / SQLite `integrations.integration_type`); omitted on global engine lines (cycle/sleep/start). |
+| GET | `/v1/telemetry/programs` | Query: optional `limit` (default 10, max 500), `since_ms`. Returns `{"items":[{at_ms, reason, slides:[...]}, ...]}` — recent screen programs (in-process ring buffer; not persisted). |
+| GET | `/v1/telemetry/ticker-programs` | Same query shape as programs; `{"items":[{at_ms, items:[...]}, ...]}` for ticker rows. |
+| GET | `/v1/media/blob-by-key` | Query: **`key`** = `blob_metadata.blob_key` (URL-encoded). Returns raw bytes with `Content-Type` from metadata (or `application/octet-stream`). **404** when metadata or backing file is missing. Requires `telemetry.read`. Used by `waddle_controller` Programs view to show cached RSS/photo/video bytes. |
+| GET | `/v1/media/rss-articles/{id}` | JSON: `id`, `feed_id`, `title`, `summary`, `link`, `image_blob_key`, `published_at_ms`. **404** if missing or suppressed. |
+| GET | `/v1/media/weather-at-location/{location_id}` | JSON: `location_id`, `location_name`, `latitude`, `longitude`, `enabled`, optional `observed_at_ms`, `current_temp_c`, `current_description`, `current_icon_blob_key` from `interests_locations` / `weather_current`. **404** if the location row does not exist. Requires `telemetry.read` (Programs slide previews). |
+| GET | `/v1/media/photos/{id}` | JSON metadata for `photos` row (`media_blob_key`, `alt_text`, photographer + Pexels URLs). **404** if missing or suppressed. |
+| GET | `/v1/media/videos/{id}` | Same shape as photos plus `duration_seconds`. **404** if missing or suppressed. |
+| GET | `/v1/media/jokes/{id}` | JSON: `setup`, `punchline`, `category_id`. **404** if missing or suppressed. |
+| GET | `/v1/media/trivia/{id}` | JSON: `question`, `option_a`…`option_d`, `correct_option`, `category_id`. **404** if missing or suppressed. |
+| POST | `/v1/display/navigation` | Body: `{"surface":"screen"|"ticker","direction":"back"|"forward"}`. Enqueues UI navigation. **503** `navigation_unavailable` if the display was started without a navigation bus. |
+| GET | `/v1/display/live-preview` | In-app live preview status: `configured`, `enabled`, `fps`, `width`, `quality`. Requires `navigation.control`. |
+| POST | `/v1/display/live-preview/session` | Creates a short-lived ticket for the JPEG WebSocket stream. Response: `{ "ticket", "expires_at_ms" }`. Requires live preview enabled and `navigation.control`. |
+| GET (upgrade) | `/v1/display/live-preview/ws?ticket=…` | Authenticated WebSocket (Bearer API key + valid ticket). Binary frames: 4-byte big-endian length + JPEG. View-only (no client input). Ticket is single-use. Capture starts when the socket opens and stops when it closes. |
+| GET | `/v1/meta/config-schemas` | Bundled type docs: `{screen_types, ticker_tape_types, overlay_types, integration_types}` — each item includes `label`, `config_json_schema`, and `example_config_json` (examples from code catalog; schemas/labels from SQLite type tables when present). `integration_types` items also include `requires_accounts`. Preferred for clients that cache schemas once per display session. |
+| GET | `/v1/meta/screen-types` | `{"items":[{screen_type, label, config_json_schema, example_config_json}, ...]}` from SQLite **`screen_types`**. |
+| GET | `/v1/meta/ticker-tape-types` | `{"items":[{ticker_type, label, config_json_schema, example_config_json}, ...]}` from SQLite **`ticker_tape_types`**. |
+| GET | `/v1/ticker/tapes` | `ticker_tapes` rows with `config_json`. Add `?include_config_schema=true` for `config_json_schema` from **`ticker_tape_types`**. |
+| POST | `/v1/ticker/tapes` | Create tape: `id`, `ticker_type`, optional `name`, `description`, `enabled`, `frequency_weight`, `sort_order`, `config_json`. **400** on unknown type; **409** if `id` exists. |
+| PATCH | `/v1/ticker/tapes/{id}` | JSON body may include `enabled`, `frequency_weight`, `sort_order`, `config_json`, `name`, `description`, `ticker_type`. |
+| DELETE | `/v1/ticker/tapes/{id}` | Deletes row; **404** if missing. |
+| GET | `/v1/display/settings` | Display-level operator settings from `config_key_values`: `display_theme_id`, `display_custom_themes` (array of `{id, label, preview}`), `display_text_scale_screen`, `display_text_scale_ticker`, `display_timezone`, `controller_time_format` (`12h` \| `24h`), `controller_date_order` (`mdy` \| `dmy` \| `ymd`), `adoption_allowed_roles`, `adoption_allow_new_requests`. |
+| PUT | `/v1/display/settings` | Partial update of the same keys (not bulk custom-theme replace). `display_theme_id` must be a builtin id or a stored custom id (**400** `unknown_display_theme_id`). `display_timezone` empty string removes the row (display falls back to default). `adoption_allowed_roles` is a JSON array of role ids (empty blocks public adoption). Legacy `adoption_allow_new_requests` (`true` → all roles, `false` → none) is still accepted. **400** `no_display_settings_fields` if the body is empty or has no recognized keys. |
+| GET | `/v1/display/themes` | List custom themes: `{ "items": [{ "id", "label", "preview" }, ...] }`. |
+| POST | `/v1/display/themes` | Create custom theme: `{ "label", "preview" }` where `preview` has `display`, `primaryContainer`, `secondaryContainer` (2–4 hex stops each; container groups are foreground first), and `accents` (4 hex). Returns created theme. **400** `invalid_display_theme_preview`, `display_theme_limit_reached`. |
+| PATCH | `/v1/display/themes/<id>` | Update custom theme (`label` and/or `preview`). **404** `display_theme_not_found`, **400** `display_theme_not_custom`. |
+| DELETE | `/v1/display/themes/<id>` | Delete custom theme; resets `display.theme.id` to `navy_coral` when it matched. **404** / **400** as for PATCH. |
+| GET | `/v1/config/key-values` | `{"items":[{key,value},...]}` — all rows in SQLite `config_key_values`, sorted by `key`. |
+| PUT | `/v1/config/key-values` | Upsert one row: JSON `{"key":"...","value":"..."}`. **400** `key_required` / `key_too_long` / `value_too_long` when out of range. |
+| DELETE | `/v1/config/key-values` | Query **`key`** (required): deletes that row. **404** `not_found` when absent. |
+| GET | `/v1/curator/categories` | `{"items":[{id,label,material_icon_name,icon_blob_key,reserved},...]}` — shared category slugs (SQLite `curator_categories`, renamed from `content_categories`). |
+| POST | `/v1/curator/categories` | Create: `id` (lowercase slug), `label`, optional `material_icon_name`, optional `icon_blob_key`. **400** invalid id/label; **409** id exists. |
+| PATCH | `/v1/curator/categories/{id}` | Update `label`, `material_icon_name`, `icon_blob_key` (null clears optional icon fields). |
+| DELETE | `/v1/curator/categories/{id}` | **403** `reserved_category` for seeded defaults; **409** `category_in_use_calendar` when calendar events reference the id. |
+| PATCH | `/v1/integrations/{id}` | Partial update: `enabled`, `poll_seconds`, `base_url`, `config_json` (JSON string or object). |
+| POST | `/v1/screens` | Create screen: `id`, `screen_type`, `config_json` (object or string), optional `name`, `description`, `enabled`, `dwell_seconds`, `frequency_weight`, scheduling keys, `data_key`. **409** if `id` exists. |
+| PATCH | `/v1/screens/{id}` | Partial update; `config_json` re-validates layout. |
+| DELETE | `/v1/screens/{id}` | Deletes row; **404** if missing. |
+
+**Expanded read shape:** each integration item includes decoded `config_json`, `secrets_configured`, `accounts_configured`, `linked_accounts`, and `required_account_types`. Add `?include_config_schema=true` to include `config_json_schema` from the `integration_types` registry (not duplicated per row). Type-level schemas, labels, and `requires_accounts` are in `GET /v1/meta/config-schemas` (`integration_types`). Service base URLs are in `config_json.baseUrl`.
+
+## Integrations list (paginated browse)
+
+**Access:** `GET /v1/integrations` requires **`integrations.read`**.
+
+**Backward compatibility:** a request with **no** query parameters returns every row as `{"items":[...]}` only (no `total` / `limit` / `offset`).
+
+**Paginated mode:** set **`enabled`** (`true` \| `false`) and/or **`limit`** (default **25** when `enabled` is set, max **100**). Response adds `total`, `limit`, and `offset`.
+
+| Query | Purpose |
+|-------|---------|
+| `enabled` | `true` = enabled integrations; `false` = available to enable |
+| `limit` | Page size (1–100) |
+| `offset` | Skip rows (default **0**) |
+| `sort` | `id` (default), `integration_type`, `poll_seconds`, `enabled` |
+| `order` | `asc` (default) or `desc` |
+| `family` | Data-family prefix of `integration_type` (text before the first `_`, e.g. `news` matches `news_rss`) |
+| `integration_type` | Exact `integration_type` match |
+| `q` | Substring on `id` and `integration_type` (`%` / `_` stripped from needle) |
+| `secrets_configured` | `true` / `false` — applied after enrichment |
+| `accounts_configured` | `true` / `false` — from SQLite view `v_integration_accounts_configured` (linked accounts + `integration_secrets` access-token rows); filtered in SQL |
+| `facets` | `family` — adds `facets.family` counts (respects filters except `family`) |
+
+### Health
+
+`GET /v1/health` returns JSON including `status` (`ok`), `app`, `version`, `build`, `schema_version`, optional host fields (`platform_os`, `platform_os_version`, `hostname`, `cpu_count`, `dart_version`), **`platform_arch`** (`arm64`, `x64`, …), **`upgrade_capable`** (boolean, Linux arm64 with upgrade helper installed), `uptime_seconds`, and **`plugins_dir_configured`** (boolean). The latter is `true` when the display process has a non-empty **`WADDLE_DISPLAY_PLUGINS_DIR`**; otherwise `false`. The controller hides its **Plugins** nav and redirects `/plugins` when the active display reports `plugins_dir_configured: false`. Older displays that omit the field are treated as configured for backward compatibility.
+
+### Display backup and upgrade (`display.maintenance`, admin)
+
+Requires adopted **`admin`** role (`display.maintenance` permission).
+
+| Method | Path | Notes |
+|--------|------|-------|
+| GET | `/v1/display/backup/status` | Database path, jobs directory, last job summary |
+| POST | `/v1/display/backup/jobs` | Start async backup (`?format=zip\|tgz`, `include_database`, `include_blobs`); **202** `{ job_id }` |
+| GET | `/v1/display/backup/jobs/{id}` | Job status: `pending`, `running`, `ready`, `failed` |
+| GET | `/v1/display/backup/jobs/{id}/download` | Archive bytes (`application/zip` or gzip) |
+| DELETE | `/v1/display/backup/jobs/{id}` | Remove temp job file |
+| POST | `/v1/display/backup/restore?confirm=yes` | Raw archive body; overwrites DB/media; display exits for restart |
+| POST | `/v1/display/ops/upgrade` | Body `{ "download_url": "https://…" }`; Pi arm64 only when `upgrade_capable`; **202** `{ job_id }` |
+| GET | `/v1/display/ops/upgrade/{id}` | Upgrade job status |
+
+Archives use the same layout as **`waddlectl backup create`** (`manifest.json`, `db/waddle_display.db`, optional `media/…`).
+
+### Controller BFF backup store
+
+When the controller BFF runs, operators can register **backup targets** (display URL + encrypted API key) and schedule daily pulls. Stored archives live under `WADDLE_CONTROLLER_DATA_DIR/backups/`.
+
+| Method | Path | Notes |
+|--------|------|-------|
+| GET | `/bff/v1/releases/waddle-view` | Latest GitHub release for `dukk/waddle-view` (optional `GITHUB_TOKEN`) |
+| GET | `/bff/v1/backup-targets` | List targets for the session user (or global when auth off) |
+| PUT | `/bff/v1/backup-targets` | Upsert schedule (`displayId`, `baseUrl`, `apiKey`, `cronExpr`, `timezone`, `retentionCount`, `enabled`) |
+| DELETE | `/bff/v1/backup-targets/{id}` | Remove target and snapshots |
+| GET | `/bff/v1/backup-targets/{id}/snapshots` | Stored backups |
+| POST | `/bff/v1/backup-targets/{id}/pull-now` | Pull from display immediately |
+| GET | `/bff/v1/backup-snapshots/{id}/download` | Download stored archive |
+| POST | `/bff/v1/backup-snapshots/{id}/restore` | Push archive to display restore endpoint |
+| POST | `/bff/v1/backup-targets/{id}/upload` | Upload archive without pulling from display |
+| DELETE | `/bff/v1/backup-snapshots/{id}` | Delete stored file |
+
+## Examples
+
+```bash
+INSTANCE_ID=$(sudo tr -d '\n' < /etc/waddle-view/instance.id)
+TOKEN=$(curl -sS -H 'Content-Type: application/json' \
+  -d "{\"username\":\"display\",\"password\":\"$INSTANCE_ID\"}" \
+  https://127.0.0.1:8787/v1/auth/login | jq -r .session_token)
+curl -sS -H "Authorization: Bearer $TOKEN" https://127.0.0.1:8787/v1/health
+curl -sS -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"title":"Door","body":"Open","qr_payload":"https://example.com/ack"}' \
+  https://127.0.0.1:8787/v1/alerts
+
+# Example: birthday confetti overlay (fixed date, repeats every year)
+curl -sS -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{
+    "id":"birthday_alex",
+    "enabled":true,
+    "overlay_type":"birthday_confetti",
+    "label":"Alex birthday",
+    "config_json":{
+      "messages":["Happy birthday, Alex!"],
+      "shapes":["rect","circle","mix"],
+      "colors":["#E05C6C","#FFE356"],
+      "density":0.36,
+      "message_interval_sec":36,
+      "fall_speed":0.14,
+      "opacity":0.46
+    },
+    "repeat_annually":true,
+    "start_month":6,
+    "start_day":12
+  }' \
+  https://127.0.0.1:8787/v1/display/overlays
+
+# First-time seed also inserts `default_birthday_example_may_13` (May 13, `birthday_confetti`, disabled).
+# PATCH `{"enabled":true}` on that id to turn on the stock example.
+
+# Global overlay kill-switch: SQLite `config_key_values` key `display.overlay.enabled`
+# = `false`, or use `GET`/`PUT`/`DELETE /v1/config/key-values` for arbitrary keys (same permission as curator read/write).
+
+curl -sS -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -X PATCH \
+  -d '{"suppressed": true}' \
+  https://127.0.0.1:8787/v1/content/videos/<video-row-id>
+```
+
+Never log or commit the API key.
+
+### Example: remote navigation
+
+```bash
+curl -sS -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"surface":"screen","direction":"forward"}' \
+  https://127.0.0.1:8787/v1/display/navigation
+```

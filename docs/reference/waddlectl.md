@@ -1,0 +1,78 @@
+# waddlectl CLI
+
+**waddlectl** is a Dart CLI shipped beside release bundles. It operates on the same SQLite database and `media/` tree as **waddle_display**.
+
+Prebuilt binaries:
+
+- **Windows**: `waddlectl/bin/waddlectl.exe` inside the release zip
+- **Linux**: `bundle/waddlectl/bin/waddlectl` next to `waddle_display` in the tarball
+
+From a dev checkout:
+
+```bash
+cd apps/waddlectl
+dart build cli -o build/waddlectl_release
+```
+
+## Backup create
+
+```bash
+dart run waddlectl --database=/path/to/waddle_display.db backup create
+```
+
+Creates a timestamped **`.zip`** or **`.tar.gz`** (current directory or `--output`).
+
+| Flag | Purpose |
+|------|---------|
+| `--format=zip` / `tgz` | Archive format |
+| `--no-include-database` | Omit SQLite file |
+| `--no-include-blobs` | Omit `media/` tree |
+
+The tool checkpoints WAL before copying the database. Archive layout:
+
+```
+manifest.json
+db/waddle_display.db
+media/...
+```
+
+## Backup restore
+
+```bash
+dart run waddlectl --database=/path/to/waddle_display.db backup restore --file backup.zip
+```
+
+Interactive confirmation (type `yes`) unless `--yes`. Replaces the database and media components present in the archive.
+
+!!! warning
+    Restore overwrites live data. Stop `waddle_display` first on production systems.
+
+## Backup schedule
+
+```bash
+dart run waddlectl --database=/path/to/waddle_display.db backup schedule
+```
+
+Prints example **crontab** and **systemd user** unit snippets — does not install them.
+
+## SQL seed export
+
+```bash
+dart run waddlectl --database=/path/to/waddle_display.db sqlite export-seed
+```
+
+Writes DELETE + INSERT statements for user tables. Use only on databases at the current schema version. Do not commit exports containing secrets.
+
+## REST and controller parity
+
+Admins can run the same backup/restore flow via:
+
+- `POST /v1/display/backup/jobs` (display API)
+- Controller **Backup & restore** (proxied through BFF)
+
+See [REST API reference](../api/reference.md) and [Controller guide](../using/controller.md).
+
+## Next steps
+
+- [Pi install](../raspberry-pi/install.md)
+- [Troubleshooting](../help/troubleshooting.md)
