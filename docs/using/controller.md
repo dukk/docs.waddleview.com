@@ -1,6 +1,6 @@
 # Operator controller
 
-**waddle_controller** is the browser UI for managing one or more displays. It pairs via the adoption API, then proxies all display REST traffic through an optional **BFF** (Hono + SQLite) so the browser never talks to self-signed display TLS directly.
+**waddle_controller** is the browser UI for managing one or more displays. It pairs via the adoption API, then proxies all display REST traffic through an optional **BFF** (Hono + SQLite or Postgres) so the browser never talks to self-signed display TLS directly.
 
 ![Controller curators screen](../assets/screenshots/controller/curators-1.png){ width="640" }
 
@@ -34,17 +34,46 @@ Admins can issue keys instantly with an existing admin bearer token. See [Securi
 
 | Area | What you configure |
 |------|-------------------|
-| **Programs / Curators** | Screen rotation, dwell, scheduling |
-| **Integrations** | Enable providers, API keys, OAuth accounts |
-| **Data** | Browse and moderate jokes, news, photos, etc. |
-| **Ticker** | Tape types, weights, ordering |
+| **Programs / Curators** | Layered configurations (exclusive, base, enhancement), schedule rules, member add/remove ops, **Active now** preview |
+| **Screens** | Per-slide types; **Require news photo** on news-family screens |
+| **Integrations** | Enable providers, API keys, OAuth accounts; **View data** deep links |
+| **Data** | Browse and moderate jokes, news, photos, tasks, etc. |
+| **Ticker** | Tape types, weights, date/time format presets |
 | **Overlays** | Celebration schedules and assets |
 | **Display settings** | Theme, timezone, adoption policy, backup |
 | **Controller settings** | Users, scheduled backups, Pi upgrade |
+| **Remote** | Live preview stream, save frame, pop-out window |
 
 ![Integrations list](../assets/screenshots/controller/integrations-1.png){ width="640" }
 
 Schema-driven forms use JSON Schema from `GET /v1/meta/config-schemas` — prefer caching that response once per session.
+
+## Curators
+
+Curator **configurations** stack by layer and `sort_order`:
+
+- **exclusive** — replaces the whole program (bootstrap/adoption)
+- **base** — primary program (screens, ticker, theme, viewport reserve)
+- **enhancement** — add/remove member ops for screens, ticker tapes, and overlays when schedules match
+
+**Members** use `add` or `remove` ops per catalog id (not just id lists). Higher `sort_order` wins when the same id is both added and removed.
+
+**Active now** (`GET /v1/curator/active`) shows matching configurations plus **`program_controls`** and **`effective_members`** (merged ids with labels — same resolution the display rotator uses).
+
+**Require news photo** can be set per curator (`require_news_photo_for_screens`) and per news-family screen row on **Screens**.
+
+## Data and integrations
+
+The **Data** page lists ingested catalog rows by kind. Filter by text, category, integration, or suppression state.
+
+- **Tasks** tab — synced Trello cards (`GET /v1/catalog/tasks`); filter by **board key**
+- From **Integrations**, **View data** opens Data with query params: `/data?kind=…&integration_type=…`
+
+**Google Calendar** setup mirrors Outlook: pick a signed-in account, set day windows, **refresh calendar list** (`GET /v1/integration-accounts/{id}/google/calendars`), assign categories per calendar.
+
+## Duration fields
+
+Poll intervals, dwell times, and similar fields accept **seconds**, **minutes**, **hours**, or **days** with unit selectors in the controller UI.
 
 ## Multi-display and catalog copy
 
@@ -55,7 +84,20 @@ The controller can manage multiple adopted displays. Catalog copy flows duplicat
 - **Display settings → Backup & restore** — pull or push archives via display admin API (`display.maintenance`)
 - **Controller settings → Backup & restore** — scheduled pulls into BFF storage, retention, restore to display
 
+New backup targets default to **weekly on Sunday at 02:00** controller local time. Each additional display in the same scope is staggered **+5 minutes**. Use the unified schedule dialog for frequency, day-of-week, time, and retention.
+
 Archives match **waddlectl** layout (`manifest.json`, `db/`, `media/`).
+
+## Live preview and Remote
+
+Enable live preview under **Controller settings → Displays → Edit → Live preview** (display env defaults: width **720**, quality **50**).
+
+On the **Remote** page:
+
+- **Test live preview** — JPEG stream over WebSocket (ticket + API-key proxy via `/bff/v1/proxy-ws/*`)
+- **Save frame** — download the latest preview frame as JPEG or PNG
+- **Open in new window** — `/remote/view` pop-out with minimal chrome; window size/position remembered in `localStorage` (`waddle_live_preview_popout_bounds_v1`)
+- **Remote controls** accordion — slide/ticker navigation and alert dismiss (same keyboard shortcuts as main Remote: ← → slides, ↑ ↓ ticker, Enter dismiss)
 
 ## Pi in-band upgrade
 

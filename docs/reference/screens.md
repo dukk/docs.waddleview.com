@@ -58,8 +58,33 @@ Most types support scheduling and weighting on the screen row itself:
 | `enabled` | Include in program when true |
 | `start_month` / `start_day` | Optional seasonal window |
 | `data_key` | Bind to curated data slot |
+| `require_news_photo` | News-family only: require RSS image for this slide (default true) |
 
 Exact `config_json` keys are type-specific — use the schema from meta endpoints or the controller form.
+
+## News grid (`news_grid`)
+
+Fixed **3×2** grid of articles. Per cell: image, headline, and source by default.
+
+| `config_json` key | Purpose |
+|-------------------|---------|
+| `showSummary` | When true, show truncated article body (uses `summaryCapacityCharsPerSlot`) |
+| `qrMode` | `hidden`, `image_overlay_left`, or `image_overlay_right` — QR over the image edge |
+| `feedId` / `categoryId` | Scope articles to one feed or content category |
+
+Curator assigns slots `main_news_grid_0` … `main_news_grid_5`.
+
+## Task board (`task_board`)
+
+Kanban-style columns from synced task integrations (Trello today).
+
+| `config_json` key | Purpose |
+|-------------------|---------|
+| `boardKey` | Board id (must match `boardIds` on the `tasks_trello` integration) |
+| `maxTasksPerColumn` | Max cards per column (default **12**) |
+| `showCompleted` | Include completed cards (default **false**) |
+
+Requires a enabled **`tasks_trello`** integration with matching **`boardIds`**. Browse synced cards under **Data → Tasks**.
 
 ## Operator tips
 

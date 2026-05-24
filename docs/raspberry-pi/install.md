@@ -54,12 +54,13 @@ For a ready-to-flash `.img`, see [deploy/pi-image](https://github.com/dukk/waddl
 
 ## Data locations
 
-- **SQLite** and **`media/`** live under the Flutter app support directory for the user running the app (`path_provider` / XDG on Linux).
+- **SQLite** (default) and **`media/`** live under the Flutter app support directory for the user running the app (`path_provider` / XDG on Linux).
+- Optional **PostgreSQL**: set `WADDLE_DISPLAY_DATABASE_URL` in systemd; blobs still use the same `media/` directory.
 - **Instance id** (packaged): `/etc/waddle-view/instance.id`
 
 ## Environment variables
 
-Set provider API keys and bind options via systemd `Environment=` — see [Configuration reference](../reference/configuration.md). Release builds **do not** read `.env` files.
+Set bind options, live preview, optional Postgres URL, and OAuth client ids via systemd `Environment=` — see [Configuration reference](../reference/configuration.md). Configure **integration API keys** in the controller UI, not env. Release builds **do not** read `.env` files.
 
 ## Next steps
 

@@ -29,9 +29,11 @@ API keys are prefixed with **`wd_`**. Only a **SHA-256 hash** is stored in SQLit
 
 | Secret type | Storage |
 |-------------|---------|
-| Static provider API keys (OpenAI, Pexels, Finnhub, …) | Process **environment** / debug `.env` — never SQLite |
+| Provider API keys (OpenAI, Pexels, Finnhub, Trello, …) | **Controller Integrations** UI → **AES-GCM** in SQLite (`integration_secrets`), DEK wrapped with machine binding |
 | Google / Microsoft OAuth tokens | **SecretStore** (DPAPI on Windows, Secret Service on Linux) |
-| Operator-configured integration secrets | **AES-GCM** in SQLite (`integration_secrets`), DEK wrapped with machine binding |
+| OAuth public client ids | Environment (`WADDLE_DISPLAY_GOOGLE_CLIENT_ID`, `WADDLE_DISPLAY_MICROSOFT_GRAPH_CLIENT_ID`) |
+
+Legacy **`WADDLE_DISPLAY_*` provider key** env vars are **deprecated and ignored** at runtime.
 
 Never commit `.env`, instance id files, API keys, or backup archives containing secrets.
 

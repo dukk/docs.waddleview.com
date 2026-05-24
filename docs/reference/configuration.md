@@ -1,6 +1,13 @@
 # Configuration reference
 
-Environment variables and config keys control binding, TLS, CORS, provider API keys, plugins, and display behavior.
+Environment variables and config keys control binding, TLS, CORS, database backend, plugins, live preview, optional cloud feed, and display behavior.
+
+## Database
+
+| Variable | Description |
+|----------|-------------|
+| `WADDLE_DISPLAY_DATABASE_URL` | Optional `postgres://…` URL. When set, the display uses PostgreSQL instead of `{applicationSupport}/waddle_display.db`. Blob files remain on disk under **`media/`**. SQLite backup/restore REST routes are **not** registered in Postgres mode — use **`pg_dump`** / **`pg_restore`** or [`waddlectl db migrate-to-postgres`](waddlectl.md). |
+| `WADDLE_CONTROLLER_DATABASE_URL` | Optional Postgres URL for the controller BFF (default: SQLite under `WADDLE_CONTROLLER_DATA_DIR`). Migrate with `npm run db:migrate-to-postgres` in `apps/waddle_controller`. |
 
 ## HTTP server
 
@@ -13,6 +20,30 @@ Environment variables and config keys control binding, TLS, CORS, provider API k
 | `WADDLE_DISPLAY_HTTP_TLS_CERT` | — | PEM cert path override |
 | `WADDLE_DISPLAY_HTTP_TLS_KEY` | — | PEM key path override |
 | `WADDLE_DISPLAY_HTTP_CORS_ORIGINS` | — | Comma-separated exact origins (seed at startup) |
+| `WADDLE_DISPLAY_CONTROLLER_PUBLIC_URL` | — | Public controller SPA URL (controller invite slides) |
+
+## Live preview
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `WADDLE_DISPLAY_LIVE_PREVIEW_ENABLED` | `1` | `0` disables capture + WebSocket |
+| `WADDLE_DISPLAY_LIVE_PREVIEW_FPS` | `10` | JPEG stream frame rate |
+| `WADDLE_DISPLAY_LIVE_PREVIEW_WIDTH` | `720` | Capture width (pixels) |
+| `WADDLE_DISPLAY_LIVE_PREVIEW_QUALITY` | `50` | JPEG quality (1–100) |
+| `WADDLE_DISPLAY_WINDOW_XID` | — | Linux: X11 window id to capture (auto-detect if unset) |
+
+Requires **`gst-launch-1.0`** on Linux for in-app window capture.
+
+## SaaS feed mode (optional)
+
+| Variable | Description |
+|----------|-------------|
+| `WADDLE_SAAS_MODE` | Set `1` to consume a remote cloud feed (SSE) instead of local collectors |
+| `WADDLE_SAAS_API_URL` | Base URL of the SaaS API |
+| `WADDLE_SAAS_DISPLAY_ID` | Display id in the cloud tenant |
+| `WADDLE_SAAS_API_KEY` | API key for the cloud feed |
+
+All four must be set when `WADDLE_SAAS_MODE=1`; the display logs a fatal configuration error otherwise.
 
 ## Plugins
 
@@ -28,19 +59,24 @@ When unset or empty, `GET /v1/health` reports `plugins_dir_configured: false` an
 |----------|-------------|
 | `WADDLE_DISPLAY_UPGRADE_SCRIPT` | Path to `waddle-view-upgrade.sh` for in-band upgrades |
 
-## Provider API keys (examples)
+## Provider API keys (deprecated in env)
 
-Set in systemd `Environment=` or debug `.env` (see [`apps/waddle_display/.env.example`](https://github.com/dukk/waddle-view/blob/main/apps/waddle_display/.env.example)):
+Configure keys in the **controller Integrations** UI (encrypted on the display). The following **`WADDLE_DISPLAY_*`** env vars are **deprecated and ignored** at runtime:
 
-| Variable | Used by |
-|----------|---------|
+| Variable | Was used by |
+|----------|-------------|
 | `WADDLE_DISPLAY_OPENAI_API_KEY` | OpenAI joke/trivia/general |
 | `WADDLE_DISPLAY_OPEN_WEATHER_MAP_API_KEY` | OpenWeatherMap |
 | `WADDLE_DISPLAY_PEXELS_API_KEY` | Pexels photo/video |
 | `WADDLE_DISPLAY_FINHUB_API_KEY` | Finnhub stocks |
 | `WADDLE_DISPLAY_FLICKR_API_KEY` | Flickr |
-| `WADDLE_DISPLAY_GOOGLE_CLIENT_ID` | Google OAuth (public client id) |
-| `WADDLE_DISPLAY_MICROSOFT_GRAPH_CLIENT_ID` | Microsoft OAuth |
+
+Still valid in env (not deprecated):
+
+| Variable | Purpose |
+|----------|---------|
+| `WADDLE_DISPLAY_GOOGLE_CLIENT_ID` | Google OAuth public client id |
+| `WADDLE_DISPLAY_MICROSOFT_GRAPH_CLIENT_ID` | Microsoft OAuth public client id |
 
 OAuth **tokens** are not env vars — they live in **SecretStore** after device sign-in.
 
@@ -57,6 +93,7 @@ OAuth **tokens** are not env vars — they live in **SecretStore** after device 
 | `display_timezone` | IANA timezone (empty = default) |
 | `controller_time_format` | `12h` or `24h` |
 | `controller_date_order` | `mdy`, `dmy`, or `ymd` |
+| `display_weather_temperature_unit` | `c` or `f` — default for weather slides and ticker (collectors store °C) |
 | `adoption_allowed_roles` | JSON array of roles allowed for public adoption |
 | `adoption_allow_new_requests` | Legacy boolean (maps to role list) |
 
@@ -73,6 +110,7 @@ Notable keys:
 | Key | Purpose |
 |-----|---------|
 | `display.overlay.enabled` | `false` disables all overlays |
+| `display.weather.temperature_unit` | `c` or `f` (same as REST `display_weather_temperature_unit`) |
 
 ## Controller BFF
 
@@ -81,6 +119,7 @@ Notable keys:
 | `WADDLE_CONTROLLER_AUTH_ENABLED` | `0` | Multi-user sign-in |
 | `WADDLE_CONTROLLER_SESSION_SECRET` | — | Session signing (required when auth on) |
 | `WADDLE_CONTROLLER_DATA_DIR` | `./data` | BFF SQLite path |
+| `WADDLE_CONTROLLER_DATABASE_URL` | — | Optional Postgres for BFF |
 | `WADDLE_CONTROLLER_BIND` | `127.0.0.1` | BFF listen host |
 | `WADDLE_CONTROLLER_PORT` | `5199` | BFF port |
 | `WADDLE_CONTROLLER_TLS` | `1` | BFF HTTPS |
@@ -90,10 +129,15 @@ Notable keys:
 
 ```ini
 [Service]
-Environment=WADDLE_DISPLAY_OPENAI_API_KEY=sk-...
 Environment=WADDLE_DISPLAY_HTTP_CORS_ORIGINS=https://192.168.1.10:5173
+Environment=WADDLE_DISPLAY_LIVE_PREVIEW_WIDTH=720
+Environment=WADDLE_DISPLAY_LIVE_PREVIEW_QUALITY=50
+# Optional Postgres:
+# Environment=WADDLE_DISPLAY_DATABASE_URL=postgres://waddle:secret@localhost:5432/waddle_display
 ExecStart=/opt/waddle-view/bundle/waddle_display
 ```
+
+Configure integration API keys in the controller — not via systemd env.
 
 ## Instance id (packaged)
 
@@ -106,3 +150,4 @@ ExecStart=/opt/waddle-view/bundle/waddle_display
 
 - [Security model](../using/security.md)
 - [Pi install](../raspberry-pi/install.md)
+- [waddlectl](waddlectl.md)

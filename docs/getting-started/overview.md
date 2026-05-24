@@ -9,10 +9,11 @@ It is optimized for **Raspberry Pi** (Linux ARM64) while supporting **Windows** 
 | Layer | Description |
 |-------|-------------|
 | **Display** | Flutter app: slide rotator, ticker marquee, overlay host, local HTTPS REST on port **8787** |
-| **Persistence** | SQLite (Drift) for configuration and catalog data; filesystem **blob store** for media |
+| **Persistence** | SQLite (Drift) by default; optional **PostgreSQL** via `WADDLE_DISPLAY_DATABASE_URL`; filesystem **blob store** for media |
 | **Data engine** | Sequential collectors (`IDataProvider`) write into SQLite; curator builds slide/ticker programs |
 | **Controller** | React operator UI; optional Node BFF proxies API calls to displays |
 | **Security** | Role-based API keys (`admin`, `operator`, `power_viewer`, `viewer`); integration secrets encrypted in SQLite |
+| **Cloud feed (optional)** | `WADDLE_SAAS_MODE` — display consumes a remote feed instead of local collectors |
 
 ## Typical deployment
 

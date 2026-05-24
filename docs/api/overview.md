@@ -60,9 +60,11 @@ Controller browsers send `Origin`. Adoption routes allow private LAN origins. Ot
 |-------|----------|
 | Health & meta | `/v1/health`, `/v1/meta/config-schemas` |
 | Configuration | `/v1/screens`, `/v1/integrations`, `/v1/display/overlays`, `/v1/ticker/tapes` |
-| Content catalog | `/v1/catalog/*`, `/v1/content/*` |
+| Content catalog | `/v1/catalog/*` (including `/v1/catalog/tasks`), `/v1/content/*` |
 | Interests | `/v1/interests/*` |
-| Curator | `/v1/curator/manual/*`, `/v1/curator/categories` |
+| Curator | `/v1/curator/manual/*`, `/v1/curator/categories`, `/v1/curator/configurations`, `/v1/curator/active` |
+| Tasks catalog | `/v1/catalog/tasks` |
+| Integration accounts | `/v1/integration-accounts/{id}/google/calendars` |
 | Telemetry | `/v1/telemetry/integrations`, `/v1/telemetry/programs` |
 | Maintenance | `/v1/display/backup/*`, `/v1/display/ops/upgrade` |
 

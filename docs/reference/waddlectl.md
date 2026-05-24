@@ -63,6 +63,22 @@ dart run waddlectl --database=/path/to/waddle_display.db sqlite export-seed
 
 Writes DELETE + INSERT statements for user tables. Use only on databases at the current schema version. Do not commit exports containing secrets.
 
+## Migrate SQLite to PostgreSQL
+
+```bash
+dart run waddlectl --database=/path/to/waddle_display.db db migrate-to-postgres --to "$WADDLE_DISPLAY_DATABASE_URL"
+```
+
+| Flag | Purpose |
+|------|---------|
+| `--to` | Target Postgres URL (default: `WADDLE_DISPLAY_DATABASE_URL` env) |
+| `--dry-run` | Compare row counts only; no writes |
+| `--force` | Overwrite a non-empty Postgres target |
+
+Stop **waddle_display** before migrating. After migration, set **`WADDLE_DISPLAY_DATABASE_URL`** in systemd and use **`pg_dump`** for backups instead of SQLite archive routes.
+
+For the controller BFF database, use `npm run db:migrate-to-postgres` in `apps/waddle_controller` (see [controller README](https://github.com/dukk/waddle-view/blob/main/apps/waddle_controller/README.md)).
+
 ## REST and controller parity
 
 Admins can run the same backup/restore flow via:

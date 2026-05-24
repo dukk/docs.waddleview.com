@@ -115,6 +115,7 @@ Allowed responses include **`Access-Control-Allow-Origin`** (mirrored origin), *
 | GET | `/v1/catalog/weather-alerts` | `event`, `headline`, `severity`, `excerpt` (description excerpt), `location_name`. Optional `location_id`. |
 | GET | `/v1/catalog/alerts` | `title`, `body`, `source`, `severity`. |
 | GET | `/v1/catalog/calendar-events` | `title`, `location`, `description`, `source`. Optional `category` (matches primary `category_id` or any junction assignment). No `suppressed` support. Items include `start_ms`, `end_ms`, `all_day`, `category_ids`, and `integration_type` derived from `source` (`calendar_google`, `calendar_outlook`, `calendar_ical`, or passthrough). |
+| GET | `/v1/catalog/tasks` | `title`, `list_label`, `board_key`. Optional `board_key`, `integration_id` query filters. Items include `id`, `title`, `list_label`, `board_key`, `due_at_ms`, `completed`, `integration_type`, `integration_id`. |
 
 Response shape: `{"items":[...], "total": <int>, "limit": <int>, "offset": <int>}`.
 
@@ -128,7 +129,7 @@ Response shape: `{"items":[...], "total": <int>, "limit": <int>, "offset": <int>
 | PATCH/DELETE | `/v1/interests/weather-locations/{id}` | **409** if `weather_current` or `weather_alerts` rows reference the id. |
 | GET/POST | `/v1/interests/rss-feeds` | Feed sources: `id`, `url`, `category`, `poll_seconds`, `max_articles`, `enabled`, optional `title`; list also returns provider fields (`last_fetched_at`, `consecutive_failures`, `next_retry_at`). |
 | PATCH/DELETE | `/v1/interests/rss-feeds/{id}` | **409** if `rss_articles` exist for the feed. |
-| GET/POST | `/v1/interests/stock-symbols` | `id`, `symbol`, `display_name`, `enabled`. |
+| GET/POST | `/v1/interests/stock-symbols` | `id`, `symbol`, `display_name`, `category` (content category slug, default `general`), `enabled`. |
 | PATCH/DELETE | `/v1/interests/stock-symbols/{id}` | **409** if `stock_quotes` exist for the symbol id. |
 | GET/POST | `/v1/interests/joke-categories` | Category pool config; `id` must match a `curator_categories` row. |
 | PATCH/DELETE | `/v1/interests/joke-categories/{id}` | **409** if `jokes` reference the category. |
@@ -177,9 +178,22 @@ These routes use the same **Bearer session** auth as other protected `/v1/*` pat
 | POST | `/v1/curator/categories` | Create: `id` (lowercase slug), `label`, optional `material_icon_name`, optional `icon_blob_key`. **400** invalid id/label; **409** id exists. |
 | PATCH | `/v1/curator/categories/{id}` | Update `label`, `material_icon_name`, `icon_blob_key` (null clears optional icon fields). |
 | DELETE | `/v1/curator/categories/{id}` | **403** `reserved_category` for seeded defaults; **409** `category_in_use_calendar` when calendar events reference the id. |
+| GET | `/v1/curator/active` | Active configurations now (`exclusive`, `base`, `enhancements` matches). Also `program_controls` (`screens_enabled`, `ticker_enabled`) and `effective_members` (`screens`, `tickers`, `overlays` — each item `{id, label}` after layered add/remove). |
+| GET | `/v1/curator/runtime-state` | `{display_adopted, internet_reachable, display_server_reachable, motion_detected, beacon_detected}` for schedule predicates. |
+| GET | `/v1/meta/curator-state-predicates` | Catalog of rule predicate ids (`id`, `label`, `description`, `implemented`). |
+| GET | `/v1/curator/configurations` | List configurations (`id`, `name`, `layer`, `sort_order`, …). |
+| GET | `/v1/curator/configurations/{id}` | Detail: summary fields, `rules[]`, `members` (`screens` / `tickers` / `overlays` as `[{id, op}]` where `op` is `add` or `remove`). |
+| POST | `/v1/curator/configurations` | Create configuration (requires `id`, `name`, `layer`; optional `rules`, `members`, ticker overrides, theme/viewport overrides). |
+| PATCH | `/v1/curator/configurations/{id}` | Partial update; may replace `rules` or `members` when those keys are present. |
+| DELETE | `/v1/curator/configurations/{id}` | Remove configuration and its rules/members. |
+| POST | `/v1/curator/configurations/{id}/rules` | Add schedule rule. |
+| PATCH | `/v1/curator/configurations/{id}/rules/{ruleId}` | Update rule. |
+| DELETE | `/v1/curator/configurations/{id}/rules/{ruleId}` | Delete rule. |
+| PUT | `/v1/curator/configurations/{id}/members` | Replace member ops: body `{screens, tickers, overlays}` — each list of catalog ids (strings) or `{id, op}` objects (`add` \| `remove`). |
+| GET | `/v1/integration-accounts/{accountId}/google/calendars` | Lists Google calendars for a signed-in account (`integrations.read`). Uses integration `baseUrl` (default Google Calendar API v3). |
 | PATCH | `/v1/integrations/{id}` | Partial update: `enabled`, `poll_seconds`, `base_url`, `config_json` (JSON string or object). |
 | POST | `/v1/screens` | Create screen: `id`, `screen_type`, `config_json` (object or string), optional `name`, `description`, `enabled`, `dwell_seconds`, `frequency_weight`, scheduling keys, `data_key`. **409** if `id` exists. |
-| PATCH | `/v1/screens/{id}` | Partial update; `config_json` re-validates layout. |
+| PATCH | `/v1/screens/{id}` | Partial update; `config_json` re-validates layout. Optional `require_news_photo` (boolean) on news-family screens — when true, only RSS rows with a downloaded image are used for that slide. |
 | DELETE | `/v1/screens/{id}` | Deletes row; **404** if missing. |
 
 **Expanded read shape:** each integration item includes decoded `config_json`, `secrets_configured`, `accounts_configured`, `linked_accounts`, and `required_account_types`. Add `?include_config_schema=true` to include `config_json_schema` from the `integration_types` registry (not duplicated per row). Type-level schemas, labels, and `requires_accounts` are in `GET /v1/meta/config-schemas` (`integration_types`). Service base URLs are in `config_json.baseUrl`.
@@ -208,7 +222,7 @@ These routes use the same **Bearer session** auth as other protected `/v1/*` pat
 
 ### Health
 
-`GET /v1/health` returns JSON including `status` (`ok`), `app`, `version`, `build`, `schema_version`, optional host fields (`platform_os`, `platform_os_version`, `hostname`, `cpu_count`, `dart_version`), **`platform_arch`** (`arm64`, `x64`, …), **`upgrade_capable`** (boolean, Linux arm64 with upgrade helper installed), `uptime_seconds`, and **`plugins_dir_configured`** (boolean). The latter is `true` when the display process has a non-empty **`WADDLE_DISPLAY_PLUGINS_DIR`**; otherwise `false`. The controller hides its **Plugins** nav and redirects `/plugins` when the active display reports `plugins_dir_configured: false`. Older displays that omit the field are treated as configured for backward compatibility.
+`GET /v1/health` returns JSON including `status` (`ok`), `app`, `version`, `build`, `schema_version` (SQLite migrations currently **52**; PostgreSQL baseline **1** when `WADDLE_DISPLAY_DATABASE_URL` is set), optional host fields (`platform_os`, `platform_os_version`, `hostname`, `cpu_count`, `dart_version`), **`platform_arch`** (`arm64`, `x64`, …), **`upgrade_capable`** (boolean, Linux arm64 with upgrade helper installed), `uptime_seconds`, and **`plugins_dir_configured`** (boolean). The latter is `true` when the display process has a non-empty **`WADDLE_DISPLAY_PLUGINS_DIR`**; otherwise `false`. The controller hides its **Plugins** nav and redirects `/plugins` when the active display reports `plugins_dir_configured: false`. Older displays that omit the field are treated as configured for backward compatibility.
 
 ### Display backup and upgrade (`display.maintenance`, admin)
 
@@ -229,7 +243,7 @@ Archives use the same layout as **`waddlectl backup create`** (`manifest.json`, 
 
 ### Controller BFF backup store
 
-When the controller BFF runs, operators can register **backup targets** (display URL + encrypted API key) and schedule daily pulls. Stored archives live under `WADDLE_CONTROLLER_DATA_DIR/backups/`.
+When the controller BFF runs, operators can register **backup targets** (display URL + encrypted API key) and schedule pulls. New targets default to **once per week** on **Sunday at 02:00** controller local time; each additional display in the same scope is staggered **+5 minutes**. Stored archives live under `WADDLE_CONTROLLER_DATA_DIR/backups/`.
 
 | Method | Path | Notes |
 |--------|------|-------|

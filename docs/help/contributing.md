@@ -33,9 +33,13 @@ When you change REST routes, screen types, or integrations in waddle-view, updat
 | Product change | Docs page |
 |----------------|-----------|
 | New `/v1/*` route | `docs/api/reference.md` |
+| Curator configuration / active APIs | `docs/api/reference.md`, `docs/using/controller.md` |
 | New `screen_type` | `docs/reference/screens.md` |
 | New integration id | `docs/reference/integrations.md` |
 | New env var | `docs/reference/configuration.md` |
+| SaaS / Postgres deployment | `docs/reference/configuration.md`, `docs/getting-started/architecture.md` |
+| `waddlectl` command | `docs/reference/waddlectl.md` |
+| Controller operator UX | `docs/using/controller.md`, `docs/using/display.md` |
 
 Prefer documenting stable operator-facing behavior; link to source files for implementation detail.
 

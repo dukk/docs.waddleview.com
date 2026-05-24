@@ -6,19 +6,26 @@ The **waddle_display** app is the TV dashboard: it rotates **screens** (slides),
 
 ## Screens (slides)
 
-Each screen row in SQLite defines:
+Each screen row in the database defines:
 
-- `screen_type` — built-in renderer (weather, news, photos, clocks, etc.)
+- `screen_type` — built-in renderer (weather, news, photos, clocks, task board, etc.)
 - `config_json` — layout and content bindings
 - Scheduling — dwell time, frequency weight, optional date windows
+- **`require_news_photo`** (news-family types) — when true, only RSS rows with a downloaded image are used for that slide; curator may fall back to a newspaper icon when placement rules require a row without a photo
 
 The **ScreenRotator** advances through the curated program. Slides preload media to reduce flicker between transitions.
 
-See the [screen types catalog](../reference/screens.md) for all `screen_type` values and typical configuration.
+### Task board (`task_board`)
+
+Shows Trello (or future task) columns for a **`boardKey`** matching the integration’s **`boardIds`**. Optional **`maxTasksPerColumn`** (default 12) and **`showCompleted`** (default false).
+
+See the [screen types catalog](../reference/screens.md) for all `screen_type` values.
 
 ## Ticker
 
 The bottom marquee shows curated lines (time, weather, news headlines, quotes, stocks, static text, plugin content). Ticker text is held **in memory**; operators read the current snapshot via `GET /v1/ticker/items`.
+
+Tape **`dateOrder`** and **`timeFormatPreset`** override display defaults (`controller_date_order`, `controller_time_format`) when set. Weather temperatures follow **`display.weather.temperature_unit`** (`c` or `f`; collectors store °C).
 
 Configure **ticker tapes** in the controller or via `GET/POST/PATCH /v1/ticker/tapes`. See [Ticker reference](../reference/ticker.md).
 
@@ -40,11 +47,17 @@ On Linux release builds, startup window policy can maximize or run borderless de
 
 ## Data collection
 
-A background **DataCollectionEngine** runs integrations sequentially. Each cycle fetches enabled providers and writes into SQLite + blob store. The curator refreshes after each cycle (and on configuration changes).
+A background **DataCollectionEngine** runs integrations sequentially (unless **SaaS feed mode** is enabled). Each cycle fetches enabled providers and writes into the database + blob store. The curator refreshes after each cycle (and on configuration changes).
 
 ## Live preview
 
-Operators with `navigation.control` can open a JPEG WebSocket stream (`POST /v1/display/live-preview/session` then `GET /v1/display/live-preview/ws?ticket=…`) for remote preview in the controller.
+When enabled (`WADDLE_DISPLAY_LIVE_PREVIEW_ENABLED`, default on), operators with `navigation.control` can:
+
+1. `GET /v1/display/live-preview` — status (`configured`, `enabled`, `fps`, `width`, `quality`)
+2. `POST /v1/display/live-preview/session` — short-lived ticket
+3. `GET /v1/display/live-preview/ws?ticket=…` with Bearer API key — binary JPEG frames (4-byte length prefix + JPEG)
+
+On Linux, **`gst-launch-1.0`** is required for window capture. The controller **Remote** page proxies the WebSocket through the BFF and supports **Save frame** and a **`/remote/view`** pop-out. See [Controller guide](controller.md).
 
 ## Next steps
 
