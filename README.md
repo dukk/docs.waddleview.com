@@ -46,6 +46,12 @@ Same build output as GitHub Pages:
 
 Point **docs.waddleview.com** at Cloudflare instead of GitHub if you prefer; do not run both deploys to the same hostname without meaning to.
 
+## Analytics
+
+Google Analytics 4 is enabled via `extra.analytics` in [`mkdocs.yml`](mkdocs.yml) (`provider: google`, `property: G-…`). Replace the measurement ID with your GA4 web stream for `https://docs.waddleview.com` before production use.
+
+To verify locally after `mkdocs serve`, open the site and check the browser Network tab for requests to `google-analytics.com` or `googletagmanager.com` containing your measurement ID.
+
 ## Maintainer docs
 
 - [`DESIGN.md`](DESIGN.md) — site purpose, information architecture, product sync model, narrative conventions

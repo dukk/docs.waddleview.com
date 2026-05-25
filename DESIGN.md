@@ -24,6 +24,7 @@ Marketing copy and brand assets may be copied from **[waddleview.com](https://gi
 | Content | Markdown under [`docs/`](docs/) |
 | CI | [`.github/workflows/docs.yml`](.github/workflows/docs.yml) — `mkdocs build --strict` on `main` → GitHub Pages |
 | Live URL | [https://docs.waddleview.com](https://docs.waddleview.com) (`docs/CNAME`) |
+| Analytics | Google Analytics 4 via Material `extra.analytics` in `mkdocs.yml` (no cookie consent banner) |
 
 **Strict build** fails on broken internal links and unresolved references — treat a green `mkdocs build --strict` as the merge gate (same as CI).
 

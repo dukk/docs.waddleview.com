@@ -11,6 +11,9 @@ extra:
   homepage: https://waddleview.com
   product_repo: https://github.com/dukk/waddle-view
   releases: https://github.com/dukk/waddle-view/releases
+  analytics:
+    provider: google
+    property: G-MVXFWB8SVD
 
 theme:
   name: material
