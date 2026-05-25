@@ -11,9 +11,13 @@ Documentation improvements are welcome in **[dukk/docs.waddleview.com](https://g
 
 Use the **Edit this page** link on any doc page to jump to the source file on GitHub.
 
+## Documentation in this repo
+
+Read [`AGENTS.md`](https://github.com/dukk/docs.waddleview.com/blob/main/AGENTS.md) and [`DESIGN.md`](https://github.com/dukk/docs.waddleview.com/blob/main/DESIGN.md) before large doc edits.
+
 ## Product contributions
 
-Read [`AGENTS.md`](https://github.com/dukk/waddle-view/blob/main/AGENTS.md) before large changes.
+Read [`AGENTS.md`](https://github.com/dukk/waddle-view/blob/main/AGENTS.md) before large changes to waddle-view.
 
 **Quality bar** (waddle-view repo):
 

@@ -46,6 +46,11 @@ Same build output as GitHub Pages:
 
 Point **docs.waddleview.com** at Cloudflare instead of GitHub if you prefer; do not run both deploys to the same hostname without meaning to.
 
+## Maintainer docs
+
+- [`DESIGN.md`](DESIGN.md) — site purpose, information architecture, product sync model, narrative conventions
+- [`AGENTS.md`](AGENTS.md) — agent and contributor workflow for this repository
+
 ## Content sources
 
 Product behavior is documented from [dukk/waddle-view](https://github.com/dukk/waddle-view). Branding and screenshots are copied from [waddleview.com](https://github.com/dukk/waddleview.com) into `docs/assets/`.
